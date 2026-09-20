@@ -285,6 +285,11 @@ curl -X POST localhost:8080/jobs -d '{"name": "daily-report", "type": "generate_
 go test ./...
 ```
 
+Most of the suite is about what happens when something goes wrong: a worker
+dying mid-run, a dispatch message being lost, a retry still backing off, a
+worker writing a result for an attempt the reaper already gave away, and the
+database being unreachable. The happy path is the small part.
+
 The store tests run the worker SQL against a real database and skip unless
 `JOBSYS_TEST_DATABASE_URL` points at a scratch database with the migrations
 applied:
