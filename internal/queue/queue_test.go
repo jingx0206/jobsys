@@ -1,6 +1,8 @@
 package queue
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/jingxu/jobsys/internal/store"
@@ -31,6 +33,20 @@ func TestDecodeDispatchRejectsBadMessages(t *testing.T) {
 	for _, body := range []string{`not json`, `{}`, `{"job_id": "job-1"}`} {
 		if _, err := DecodeDispatch([]byte(body)); err == nil {
 			t.Errorf("DecodeDispatch(%s) succeeded, want an error", body)
+		}
+	}
+}
+
+func TestCheckTopicNeedsBrokers(t *testing.T) {
+	// A worker with no broker list would otherwise start up and sit silent,
+	// looking healthy while nothing is ever dispatched to it.
+	for _, brokers := range [][]string{nil, {}} {
+		_, err := CheckTopic(context.Background(), brokers)
+		if err == nil {
+			t.Fatalf("CheckTopic(%v) succeeded, want it to refuse an empty broker list", brokers)
+		}
+		if !strings.Contains(err.Error(), "no kafka brokers") {
+			t.Errorf("err = %v, want it to name the missing broker list", err)
 		}
 	}
 }

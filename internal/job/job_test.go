@@ -33,6 +33,61 @@ func TestGenerateTextOutput(t *testing.T) {
 	}
 }
 
+func TestGenerateTextDefaultsToNumberedLines(t *testing.T) {
+	out, err := Run(context.Background(), TypeGenerateText, json.RawMessage(`{"lines": 2}`), 1, &recorder{})
+
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if want := "line 1\nline 2\n"; out != want {
+		t.Errorf("output = %q, want %q", out, want)
+	}
+}
+
+func TestGenerateTextKeepsAUnicodePrefix(t *testing.T) {
+	out, err := Run(context.Background(), TypeGenerateText, json.RawMessage(`{"lines": 2, "prefix": "行"}`), 1, &recorder{})
+
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if want := "行 1\n行 2\n"; out != want {
+		t.Errorf("output = %q, want %q", out, want)
+	}
+}
+
+func TestGenerateTextFailAtTheLastLine(t *testing.T) {
+	// Writing every line and then failing must still be a failure, not a
+	// success with complete output.
+	out, err := Run(context.Background(), TypeGenerateText, json.RawMessage(`{"lines": 3, "fail_at": 3}`), 1, &recorder{})
+
+	if err == nil || !strings.Contains(err.Error(), "after 3 lines") {
+		t.Fatalf("err = %v, want a deliberate failure after 3 lines", err)
+	}
+	if out != "" {
+		t.Errorf("output = %q, want nothing recorded for a failed attempt", out)
+	}
+}
+
+func TestRunRejectsWhatItCannotExecute(t *testing.T) {
+	tests := []struct{ name, jobType, payload string }{
+		{"unknown type", "mine_bitcoin", `{}`},
+		{"malformed payload", TypeGenerateText, `{"lines":`},
+		{"payload out of range", TypeGenerateText, `{"lines": 0}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := Run(context.Background(), tt.jobType, json.RawMessage(tt.payload), 1, &recorder{})
+
+			if err == nil {
+				t.Fatalf("Run succeeded with output %q, want an error", out)
+			}
+			if out != "" {
+				t.Errorf("output = %q, want nothing alongside the error", out)
+			}
+		})
+	}
+}
+
 func TestGenerateTextLogsBoundedProgress(t *testing.T) {
 	log := &recorder{}
 
@@ -92,10 +147,25 @@ func TestValidate(t *testing.T) {
 		{"valid", TypeGenerateText, `{"lines": 5}`, true},
 		{"fail_at within lines", TypeGenerateText, `{"lines": 5, "fail_at": 5}`, true},
 		{"fail_at beyond lines", TypeGenerateText, `{"lines": 5, "fail_at": 6}`, false},
+		{"negative fail_at", TypeGenerateText, `{"lines": 5, "fail_at": -1}`, false},
 		{"fail_attempts", TypeGenerateText, `{"lines": 5, "fail_attempts": 2}`, true},
+		{"the most fail_attempts", TypeGenerateText, `{"lines": 5, "fail_attempts": 10}`, true},
 		{"too many fail_attempts", TypeGenerateText, `{"lines": 5, "fail_attempts": 11}`, false},
+		{"negative fail_attempts", TypeGenerateText, `{"lines": 5, "fail_attempts": -1}`, false},
+		{"one line", TypeGenerateText, `{"lines": 1}`, true},
+		{"the most lines", TypeGenerateText, `{"lines": 100000}`, true},
+		{"past the most lines", TypeGenerateText, `{"lines": 100001}`, false},
 		{"zero lines", TypeGenerateText, `{"lines": 0}`, false},
+		{"negative lines", TypeGenerateText, `{"lines": -1}`, false},
+		{"no delay", TypeGenerateText, `{"lines": 1, "delay_ms": 0}`, true},
+		{"the longest delay", TypeGenerateText, `{"lines": 1, "delay_ms": 10000}`, true},
+		{"past the longest delay", TypeGenerateText, `{"lines": 1, "delay_ms": 10001}`, false},
+		{"negative delay", TypeGenerateText, `{"lines": 1, "delay_ms": -1}`, false},
 		{"unknown field", TypeGenerateText, `{"lines": 1, "font": "mono"}`, false},
+		{"malformed json", TypeGenerateText, `{"lines":`, false},
+		{"lines as a string", TypeGenerateText, `{"lines": "three"}`, false},
+		{"payload is not an object", TypeGenerateText, `[1, 2, 3]`, false},
+		{"empty payload", TypeGenerateText, `{}`, false},
 		{"unknown type", "mine_bitcoin", `{}`, false},
 		{"missing type", "", `{}`, false},
 	}

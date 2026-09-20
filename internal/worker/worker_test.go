@@ -38,6 +38,19 @@ type fakeStore struct {
 	retries   []retried
 	released  []string
 	appends   [][]store.LogLine
+
+	// ownerLost makes the writes that end an attempt report that the attempt
+	// was taken away, as the store does once the reaper has requeued it.
+	ownerLost bool
+	// failStatus is what FailOrRetry reports; QUEUED, a retry, by default.
+	failStatus string
+
+	// What the maintenance queries hand to the next pass that asks, and the
+	// error they all report.
+	reaped         []store.Redispatch
+	dueRetries     []store.Redispatch
+	swept          []store.Redispatch
+	maintenanceErr error
 }
 
 func (f *fakeStore) ClaimRun(_ context.Context, runID, workerID string) (store.Run, bool, error) {
@@ -71,21 +84,28 @@ func (f *fakeStore) FinishRun(_ context.Context, runID, _ string, _ int, status 
 		fin.errText = *errMsg
 	}
 	f.finished = append(f.finished, fin)
-	return true, nil
+	return !f.ownerLost, nil
 }
 
 func (f *fakeStore) FailOrRetry(_ context.Context, runID, _ string, _ int, errMsg string, backoff time.Duration) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.retries = append(f.retries, retried{runID: runID, errText: errMsg, backoff: backoff})
-	return store.StatusQueued, nil
+	switch {
+	case f.ownerLost:
+		return "", nil
+	case f.failStatus != "":
+		return f.failStatus, nil
+	default:
+		return store.StatusQueued, nil
+	}
 }
 
 func (f *fakeStore) ReleaseRun(_ context.Context, runID, _ string, _ int, _ string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.released = append(f.released, runID)
-	return true, nil
+	return !f.ownerLost, nil
 }
 
 func (f *fakeStore) AppendLogs(_ context.Context, _ string, _ int, lines []store.LogLine) error {
@@ -96,15 +116,33 @@ func (f *fakeStore) AppendLogs(_ context.Context, _ string, _ int, lines []store
 }
 
 func (f *fakeStore) ReapStale(context.Context, time.Duration, int) ([]store.Redispatch, error) {
-	return nil, nil
+	return f.takePending(&f.reaped)
 }
 
 func (f *fakeStore) SweepQueued(context.Context, time.Duration, int) ([]store.Redispatch, error) {
-	return nil, nil
+	return f.takePending(&f.swept)
 }
 
 func (f *fakeStore) DueRetries(context.Context, int) ([]store.Redispatch, error) {
-	return nil, nil
+	return f.takePending(&f.dueRetries)
+}
+
+// takePending hands the waiting runs to the first maintenance pass that asks
+// and clears them, the way the real queries only return each run once.
+func (f *fakeStore) takePending(pending *[]store.Redispatch) ([]store.Redispatch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rs := *pending
+	*pending = nil
+	return rs, f.maintenanceErr
+}
+
+// setPending queues runs for a later maintenance pass, for tests that check
+// the loop is still running after an error.
+func (f *fakeStore) setPending(pending *[]store.Redispatch, rs []store.Redispatch) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	*pending = rs
 }
 
 func (f *fakeStore) results() []finished {
@@ -121,6 +159,7 @@ func (f *fakeStore) failures() []retried {
 
 type fakeDispatcher struct {
 	mu   sync.Mutex
+	err  error
 	runs []store.Run
 }
 
@@ -128,7 +167,19 @@ func (d *fakeDispatcher) Dispatch(_ context.Context, run store.Run, _ string) er
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.runs = append(d.runs, run)
-	return nil
+	return d.err
+}
+
+func (d *fakeDispatcher) dispatched() []store.Run {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]store.Run(nil), d.runs...)
+}
+
+func (d *fakeDispatcher) setErr(err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.err = err
 }
 
 type fakeConsumer struct {

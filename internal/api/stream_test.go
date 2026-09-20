@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -131,5 +132,73 @@ func TestStreamLogsUnknownRun(t *testing.T) {
 
 	if rec := do(h, http.MethodGet, "/runs/"+store.NewID()+"/logs/stream", ""); rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestStreamLogsRejectsBadRequests(t *testing.T) {
+	// A bad query has to be refused before the response becomes a stream,
+	// because after that there is no status code left to send.
+	h, st := newStreamServer()
+	runID := store.NewID()
+	st.update(func(f *fakeStore) {
+		f.runs[runID] = store.Run{ID: runID, Status: store.StatusRunning, Attempt: 1}
+	})
+	stream := "/runs/" + runID + "/logs/stream"
+
+	tests := []struct {
+		name, path string
+		want       int
+	}{
+		{"not a uuid", "/runs/nope/logs/stream", http.StatusBadRequest},
+		{"attempt zero", stream + "?attempt=0", http.StatusBadRequest},
+		{"an attempt the run has not reached", stream + "?attempt=2", http.StatusBadRequest},
+		{"attempt not a number", stream + "?attempt=last", http.StatusBadRequest},
+		{"from_seq zero", stream + "?from_seq=0", http.StatusBadRequest},
+		{"from_seq not a number", stream + "?from_seq=start", http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := do(h, http.MethodGet, tt.path, "")
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d, want %d; body: %s", rec.Code, tt.want, rec.Body)
+			}
+			if ct := rec.Header().Get("Content-Type"); strings.HasPrefix(ct, "text/event-stream") {
+				t.Errorf("Content-Type = %q, want the request refused rather than streamed", ct)
+			}
+		})
+	}
+}
+
+func TestStreamLogsStopsWhenTheClientDisconnects(t *testing.T) {
+	// The run never finishes, so only the client going away ends this stream.
+	// A stream that outlived its client would hold a connection and keep
+	// polling Postgres forever.
+	h, st := newStreamServer()
+	runID := store.NewID()
+	st.update(func(f *fakeStore) {
+		f.runs[runID] = store.Run{ID: runID, Status: store.StatusRunning, Attempt: 1}
+		f.logs[runID] = []store.LogLine{{Attempt: 1, Seq: 1, Line: "working"}}
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/runs/"+runID+"/logs/stream", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.ServeHTTP(rec, req)
+	}()
+
+	// Let it send the line it has, then hang up.
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stream kept running after the client disconnected")
+	}
+	if got := events(t, rec.Body.String()); len(got) == 0 {
+		t.Error("the stream sent nothing before the client disconnected")
 	}
 }

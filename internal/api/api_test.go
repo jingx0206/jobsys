@@ -21,6 +21,8 @@ type fakeStore struct {
 	jobs map[string]store.Job
 	runs map[string]store.Run
 	logs map[string][]store.LogLine
+	// pingErr makes the store report Postgres as unreachable.
+	pingErr error
 }
 
 func newFakeStore() *fakeStore {
@@ -31,7 +33,7 @@ func newFakeStore() *fakeStore {
 	}
 }
 
-func (f *fakeStore) Ping(context.Context) error { return nil }
+func (f *fakeStore) Ping(context.Context) error { return f.pingErr }
 
 func (f *fakeStore) CreateJob(_ context.Context, n store.NewJob) (store.Job, error) {
 	j := store.Job{
@@ -228,7 +230,11 @@ func TestCreateJobRejectsInvalidInput(t *testing.T) {
 		{"bad timezone", `{"name": "x", "type": "generate_text", "payload": {"lines": 1}, "timezone": "Mars/Olympus"}`},
 		{"local timezone", `{"name": "x", "type": "generate_text", "payload": {"lines": 1}, "timezone": "Local"}`},
 		{"negative retries", `{"name": "x", "type": "generate_text", "payload": {"lines": 1}, "max_retries": -1}`},
+		{"too many retries", `{"name": "x", "type": "generate_text", "payload": {"lines": 1}, "max_retries": 11}`},
 		{"zero timeout", `{"name": "x", "type": "generate_text", "payload": {"lines": 1}, "timeout_sec": 0}`},
+		{"negative timeout", `{"name": "x", "type": "generate_text", "payload": {"lines": 1}, "timeout_sec": -60}`},
+		{"timeout past a day", `{"name": "x", "type": "generate_text", "payload": {"lines": 1}, "timeout_sec": 86401}`},
+		{"blank name", `{"name": "   ", "type": "generate_text", "payload": {"lines": 1}}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
