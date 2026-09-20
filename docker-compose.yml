@@ -1,0 +1,153 @@
+# The whole system: Postgres, Kafka, the API and two workers.
+#
+#   docker compose up -d --build
+#
+# One-shot services run first: migrate applies the schema and kafka-init
+# creates the dispatch topic. The API and workers wait for both.
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: jobsys-postgres
+    environment:
+      POSTGRES_DB: jobsys
+      POSTGRES_USER: jobsys
+      # Local development only. Kubernetes reads it from a Secret.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jobsys-dev}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobsys -d jobsys"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  # Applies pending migrations (embedded in the api binary), then exits.
+  # Applied files are recorded in schema_migrations.
+  migrate:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: api
+    image: jobsys-api:dev
+    container_name: jobsys-migrate
+    command: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://jobsys:${POSTGRES_PASSWORD:-jobsys-dev}@postgres:5432/jobsys?sslmode=disable
+    restart: "no"
+
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: jobsys-kafka
+    ports: ["9092:9092"]
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # PLAINTEXT is for containers on the compose network (kafka:19092);
+      # PLAINTEXT_HOST is for processes on this machine (localhost:9092).
+      KAFKA_LISTENERS: PLAINTEXT://:19092,PLAINTEXT_HOST://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Topics are created explicitly by kafka-init. A typo'd or missing topic
+      # should fail loudly, not silently appear with one partition.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+
+  # Creates the dispatch topic, then exits. Three partitions let up to three
+  # workers in the job-workers group consume in parallel.
+  kafka-init:
+    image: apache/kafka:3.9.0
+    container_name: jobsys-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint:
+      - /opt/kafka/bin/kafka-topics.sh
+      - --bootstrap-server
+      - kafka:19092
+      - --create
+      - --if-not-exists
+      - --topic
+      - job-dispatch
+      - --partitions
+      - "3"
+      - --replication-factor
+      - "1"
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: api
+    image: jobsys-api:dev
+    container_name: jobsys-api
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://jobsys:${POSTGRES_PASSWORD:-jobsys-dev}@postgres:5432/jobsys?sslmode=disable
+      KAFKA_BROKERS: kafka:19092
+    ports: ["8080:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/readyz > /dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: worker
+    image: jobsys-worker:dev
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    deploy:
+      replicas: 2
+    environment:
+      DATABASE_URL: postgres://jobsys:${POSTGRES_PASSWORD:-jobsys-dev}@postgres:5432/jobsys?sslmode=disable
+      KAFKA_BROKERS: kafka:19092
+      # WORKER_ID defaults to hostname-pid, i.e. the container id, which is
+      # unique per replica.
+      OUTPUT_DIR: /data/output
+      SHUTDOWN_GRACE: 10s
+    volumes:
+      # Shared by both replicas; each run writes its own <run_id>.txt.
+      - job-output:/data/output
+    # Longer than SHUTDOWN_GRACE, so Docker doesn't SIGKILL a worker while it
+    # is still handing its unfinished runs back to the queue.
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  kafka-data:
+  job-output:

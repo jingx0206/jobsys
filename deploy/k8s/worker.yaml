@@ -1,0 +1,56 @@
+# Workers receive no traffic, so there is no Service. The dispatch topic has
+# three partitions, so a fourth replica would sit idle.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      enableServiceLinks: false
+      # Longer than SHUTDOWN_GRACE, so a pod being deleted can hand its
+      # unfinished runs back instead of being SIGKILLed mid-job.
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: migrate
+          image: jobsys-api:dev
+          imagePullPolicy: Never
+          args: ["migrate"]
+          envFrom:
+            - secretRef:
+                name: jobsys-db
+      containers:
+        - name: worker
+          image: jobsys-worker:dev
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: jobsys-config
+            - secretRef:
+                name: jobsys-db
+          env:
+            # The pod name is unique and shows which pod ran each run.
+            - name: WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: output
+              mountPath: /data/output
+      volumes:
+        # Output files are per pod; the run's output is also stored in Postgres.
+        - name: output
+          emptyDir: {}

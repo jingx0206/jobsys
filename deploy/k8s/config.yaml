@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jobsys-config
+data:
+  KAFKA_BROKERS: kafka:9092
+  WORKER_CONCURRENCY: "2"
+  HEARTBEAT_INTERVAL: 3s
+  STALE_AFTER: 15s
+  MAINTENANCE_INTERVAL: 5s
+  SWEEP_AFTER: 60s
+  # Must stay below the worker's terminationGracePeriodSeconds.
+  SHUTDOWN_GRACE: 10s
+  RETRY_BASE_DELAY: 5s
+  RETRY_MAX_DELAY: 5m
+  OUTPUT_DIR: /data/output
+  SCHEDULER_INTERVAL: 2s
+---
+# Local development credentials. Anywhere real, create this Secret out of band
+# (or with an external secrets operator) instead of keeping it in the repo.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jobsys-db
+type: Opaque
+stringData:
+  POSTGRES_USER: jobsys
+  POSTGRES_PASSWORD: jobsys-dev
+  POSTGRES_DB: jobsys
+  DATABASE_URL: postgres://jobsys:jobsys-dev@postgres:5432/jobsys?sslmode=disable

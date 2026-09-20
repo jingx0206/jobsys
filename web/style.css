@@ -1,0 +1,246 @@
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --border: #e3e6eb;
+  --text: #1c2330;
+  --dim: #6b7485;
+  --accent: #2f6fed;
+  --accent-text: #ffffff;
+  --row-hover: #f1f4f9;
+  --row-selected: #e8f0fe;
+  --log-bg: #0f1520;
+  --log-text: #d7dde8;
+
+  --queued: #5b6b85;
+  --running: #b7791f;
+  --succeeded: #1f8a4c;
+  --failed: #c53030;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116;
+    --panel: #161b23;
+    --border: #262d38;
+    --text: #e3e8f0;
+    --dim: #8b95a7;
+    --accent: #5b8cff;
+    --row-hover: #1c2330;
+    --row-selected: #1d2a45;
+    --log-bg: #0a0d12;
+
+    --queued: #8d9bb5;
+    --running: #e0a33c;
+    --succeeded: #3fb872;
+    --failed: #f06565;
+  }
+}
+
+* { box-sizing: border-box; }
+
+/* Rules like `form { display: grid }` would otherwise override the hidden
+   attribute and show elements the script has hidden. */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+header h1 { margin: 0; font-size: 18px; letter-spacing: -0.01em; }
+.tagline { color: var(--dim); }
+
+.conn { margin-left: auto; font-size: 12px; color: var(--dim); }
+.conn::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+.conn.ok::before { background: var(--succeeded); }
+.conn.down { color: var(--failed); }
+.conn.down::before { background: var(--failed); }
+
+main {
+  display: grid;
+  grid-template-columns: minmax(400px, 1fr) minmax(560px, 1.6fr);
+  gap: 16px;
+  padding: 16px 24px 32px;
+  align-items: start;
+}
+#detail { grid-column: 1 / -1; }
+/* Below this the two tables don't fit side by side; stack them. */
+@media (max-width: 1180px) {
+  main { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  main { padding: 12px 16px 24px; }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  min-width: 0;
+  /* A wide table scrolls inside its panel instead of widening the page. */
+  overflow-x: auto;
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+h2 { margin: 0; font-size: 15px; }
+h3 { margin: 18px 0 8px; font-size: 13px; color: var(--dim); font-weight: 600; }
+
+button {
+  font: inherit;
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+button:hover { filter: brightness(1.08); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.secondary { background: transparent; color: var(--accent); }
+button.small { padding: 2px 10px; font-size: 12px; }
+
+select, input {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px 12px;
+  padding: 12px;
+  margin-bottom: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--dim); }
+form input { width: 100%; color: var(--text); }
+.wide { grid-column: 1 / -1; }
+.actions { display: flex; align-items: center; gap: 12px; }
+.hint { font-size: 12px; color: var(--dim); }
+.form-error { margin: 0; color: var(--failed); }
+
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+td { padding: 7px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--row-hover); }
+tbody tr.selected { background: var(--row-selected); }
+tbody tr:last-child td { border-bottom: none; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.right { text-align: right; }
+.buttons button + button { margin-left: 6px; }
+.mono { font-family: ui-monospace, "Cascadia Code", Menlo, monospace; font-size: 12px; }
+.dim { color: var(--dim); }
+#runs td.mono { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+
+.empty { color: var(--dim); text-align: center; padding: 16px 0 4px; margin: 0; }
+
+.badge {
+  display: inline-block;
+  min-width: 82px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--queued);
+  background: color-mix(in srgb, var(--queued) 14%, transparent);
+}
+.badge.running { color: var(--running); background: color-mix(in srgb, var(--running) 16%, transparent); animation: pulse 1.4s ease-in-out infinite; }
+.badge.succeeded { color: var(--succeeded); background: color-mix(in srgb, var(--succeeded) 14%, transparent); }
+.badge.failed { color: var(--failed); background: color-mix(in srgb, var(--failed) 14%, transparent); }
+@keyframes pulse { 50% { opacity: 0.55; } }
+
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr max-content 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+@media (max-width: 700px) { dl { grid-template-columns: max-content 1fr; } }
+dt { color: var(--dim); }
+dd { margin: 0; overflow-wrap: anywhere; }
+
+.stream-state { font-weight: 400; margin-left: 6px; }
+.stream-state.live { color: var(--running); }
+.stream-state.succeeded { color: var(--succeeded); }
+.stream-state.failed { color: var(--failed); }
+
+.log, .output {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--log-bg);
+  color: var(--log-text);
+  font: 12px/1.55 ui-monospace, "Cascadia Code", Menlo, monospace;
+  max-height: 340px;
+  overflow: auto;
+}
+.log:empty::before { content: "waiting for log lines…"; color: #6b7485; }
+.log .attempt {
+  margin: 8px 0 4px;
+  color: #8fb4ff;
+  font-weight: 600;
+  border-bottom: 1px solid #243047;
+}
+.log .attempt:first-child { margin-top: 0; }
+.log .line { display: flex; gap: 12px; }
+.log .ts { color: #6b7485; }
+.log .lvl { width: 3.5em; color: #8b95a7; }
+.log .line.error { color: #ff8a8a; }
+.log .line.error .lvl { color: #ff8a8a; }
+.log .line.warn .lvl { color: #e0a33c; }
+
+.flash {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: 8px;
+  z-index: 10;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
+}
+.flash.ok { background: var(--succeeded); color: #fff; }
+.flash.error { background: var(--failed); color: #fff; }

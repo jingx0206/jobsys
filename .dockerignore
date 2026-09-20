@@ -1,0 +1,6 @@
+.git
+bin
+*.exe
+deploy
+migrations/checks
+README.md

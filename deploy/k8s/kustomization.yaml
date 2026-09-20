@@ -1,0 +1,17 @@
+# Deploys jobsys into the jobsys namespace:
+#
+#   deploy/k8s/load-images.sh      # after building images; see that script
+#   kubectl apply -k deploy/k8s
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: jobsys
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: jobsys
+resources:
+  - namespace.yaml
+  - config.yaml
+  - postgres.yaml
+  - kafka.yaml
+  - api.yaml
+  - worker.yaml

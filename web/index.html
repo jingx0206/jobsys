@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jobsys</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>jobsys</h1>
+    <span class="tagline">distributed job runner</span>
+    <span id="conn" class="conn">connecting…</span>
+  </header>
+
+  <div id="flash" class="flash" hidden></div>
+
+  <main>
+    <section class="panel" id="jobs-panel">
+      <div class="panel-head">
+        <h2>Jobs</h2>
+        <button id="toggle-create">New job</button>
+      </div>
+
+      <form id="create-form" hidden>
+        <label class="wide">Name
+          <input name="name" required placeholder="daily-report">
+        </label>
+        <label>Lines
+          <input name="lines" type="number" min="1" max="100000" value="20" required>
+        </label>
+        <label>Prefix
+          <input name="prefix" placeholder="line">
+        </label>
+        <label>Delay per line (ms)
+          <input name="delay_ms" type="number" min="0" max="10000" value="200">
+        </label>
+        <label>Timeout (s)
+          <input name="timeout_sec" type="number" min="1" placeholder="300">
+        </label>
+        <label>Schedule
+          <input name="cron_expr" placeholder="@every 30s or */5 * * * *">
+        </label>
+        <label>Time zone
+          <input name="timezone" placeholder="UTC">
+        </label>
+        <label>Max retries
+          <input name="max_retries" type="number" min="0" max="10" placeholder="3">
+        </label>
+        <label title="Fail every attempt after this many lines">Fail at line
+          <input name="fail_at" type="number" min="0" placeholder="never">
+        </label>
+        <label title="Fail the first N attempts, so the run succeeds on a retry">Fail first attempts
+          <input name="fail_attempts" type="number" min="0" max="10" placeholder="0">
+        </label>
+        <p id="create-error" class="form-error wide" hidden></p>
+        <div class="actions wide">
+          <button type="submit">Create job</button>
+          <span class="hint">Leave the schedule empty for a job you run by hand.</span>
+        </div>
+      </form>
+
+      <table id="jobs">
+        <thead><tr><th>Name</th><th>Schedule</th><th>Next run</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="jobs-empty" class="empty" hidden>No jobs yet. Create one to get started.</p>
+    </section>
+
+    <section class="panel" id="runs-panel">
+      <div class="panel-head">
+        <h2>Runs</h2>
+        <select id="job-filter" aria-label="Filter runs by job"></select>
+      </div>
+      <table id="runs">
+        <thead>
+          <tr><th>Status</th><th>Job</th><th>Trigger</th><th class="num">Attempt</th><th>Worker</th><th>When</th><th class="num">Took</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="runs-empty" class="empty" hidden>No runs yet. Press Run on a job.</p>
+    </section>
+
+    <section class="panel" id="detail" hidden>
+      <div class="panel-head">
+        <h2>Run <code id="d-id"></code></h2>
+        <button id="d-close" class="secondary">Close</button>
+      </div>
+      <dl id="d-meta"></dl>
+      <h3>Log <span id="d-stream" class="stream-state"></span></h3>
+      <div id="d-log" class="log"></div>
+      <h3 id="d-output-head" hidden>Output</h3>
+      <pre id="d-output" class="output" hidden></pre>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

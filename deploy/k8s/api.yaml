@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      enableServiceLinks: false
+      initContainers:
+        # Applies any pending migrations. Every API and worker pod runs it;
+        # an advisory lock makes them take turns.
+        - name: migrate
+          image: jobsys-api:dev
+          imagePullPolicy: Never
+          args: ["migrate"]
+          envFrom:
+            - secretRef:
+                name: jobsys-db
+      containers:
+        - name: api
+          image: jobsys-api:dev
+          # Images are loaded straight into the node by load-images.sh, never
+          # pulled. A missing image fails fast with ErrImageNeverPull.
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: jobsys-config
+            - secretRef:
+                name: jobsys-db
+          ports:
+            - name: http
+              containerPort: 8080
+          # The server starts listening only after Postgres and Kafka are
+          # reachable, which can take a while on a cold cluster.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 40
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          # Only route traffic to a pod that can reach Postgres.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
